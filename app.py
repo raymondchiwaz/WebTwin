@@ -33,6 +33,10 @@ try:
     from selenium.common.exceptions import TimeoutException, WebDriverException
     from selenium.webdriver.chrome.service import Service
     from webdriver_manager.chrome import ChromeDriverManager
+    # Add Firefox support
+    from selenium.webdriver.firefox.options import Options as FirefoxOptions
+    from selenium.webdriver.firefox.service import Service as FirefoxService
+    from webdriver_manager.firefox import GeckoDriverManager
     SELENIUM_AVAILABLE = True
     print("Selenium is available. Advanced rendering is enabled.")
 except ImportError:
@@ -44,6 +48,22 @@ cssutils.log.setLevel(logging.CRITICAL)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev_key_for_website_extractor')
+
+# --- Capability probing for Selenium runtime ---
+def _selenium_runtime_supported():
+    """Return True if Selenium is importable and a supported browser binary exists."""
+    try:
+        if not SELENIUM_AVAILABLE:
+            return False
+        chrome_bins = ['google-chrome', 'google-chrome-stable', 'chrome', 'chromium', 'chromium-browser']
+        firefox_bins = ['firefox']
+        return any(shutil.which(b) for b in chrome_bins + firefox_bins)
+    except Exception:
+        return False
+
+@app.route('/capabilities')
+def capabilities():
+    return jsonify({ 'selenium_supported': _selenium_runtime_supported() })
 
 def is_binary_content(content, asset_type):
     """Determine if content should be treated as binary or text based on asset type and content inspection"""
@@ -1346,7 +1366,7 @@ def extract_with_selenium(url, timeout=30):
                             });
                             // Get all image srcs
                             document.querySelectorAll('img[src]').forEach(function(el) {
-                                if (el.src && !el.src.startsWith('data:')) resources.push(el.src);
+                                if (el.src) resources.push(el.src);
                             });
                             return resources;
                         """)
@@ -1760,6 +1780,7 @@ def extract():
         if not html_content or len(html_content) < 100:  # Arbitrary minimum size for valid HTML
             return jsonify({'error': 'Failed to extract valid HTML content from the website'}), 400
         
+        
         # Continue with asset extraction and zip file creation
         try:
             print("\nExtracting assets...")
@@ -1773,12 +1794,8 @@ def extract():
             
             # If we have additional URLs from Selenium, add them to the assets
             if additional_urls:
-                print(f"Adding {len(additional_urls)} URLs discovered by Selenium")
+                print(f"Adding {len(additional_urls)} URLs discovered by Selenium to assets")
                 for asset_url in additional_urls:
-                    # Skip data URLs
-                    if not asset_url or asset_url.startswith('data:'):
-                        continue
-                        
                     # Normalize URL
                     if asset_url.startswith('//'):
                         asset_url = f"https:{asset_url}"
@@ -1949,4 +1966,4 @@ def main():
     print("Website Extractor is running!")
     print("Access it in your browser at: http://127.0.0.1:5001")
     print("="*80 + "\n")
-    app.run(debug=True, threaded=True, port=5001) 
+    app.run(debug=True, threaded=True, port=5001)
